@@ -1,0 +1,67 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: #080d1a;
+  --foreground: #f1f5f9;
+}
+
+body {
+  background-color: var(--background);
+  color: var(--foreground);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  overflow-x: hidden;
+}
+
+/* Custom Scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #0b1120;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #1e293b;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #334155;
+}
+
+/* Custom prose for job descriptions */
+.job-prose {
+  color: #cbd5e1;
+  line-height: 1.65;
+  font-size: 0.95rem;
+}
+
+.job-prose p {
+  margin-bottom: 0.85rem;
+}
+
+.job-prose ul {
+  list-style-type: disc;
+  padding-left: 1.4rem;
+  margin-bottom: 0.85rem;
+}
+
+.job-prose li {
+  margin-bottom: 0.35rem;
+}
+
+.job-prose h1, .job-prose h2, .job-prose h3, .job-prose h4 {
+  color: #f8fafc;
+  font-weight: 600;
+  margin-top: 1.25rem;
+  margin-bottom: 0.5rem;
+}
+
+.job-prose a {
+  color: #38bdf8;
+  text-decoration: underline;
+}
