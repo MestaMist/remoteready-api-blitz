@@ -1,4 +1,5 @@
 import { PublicHoliday, CountryOption } from '../types';
+import { fetchWithRetry, memoryCache } from './httpClient';
 
 export const POPULAR_COUNTRIES: CountryOption[] = [
   { countryCode: 'US', name: 'United States' },
@@ -13,61 +14,80 @@ export const POPULAR_COUNTRIES: CountryOption[] = [
   { countryCode: 'IE', name: 'Ireland' },
 ];
 
-export async function fetchPublicHolidays(year: number, countryCode = 'US'): Promise<PublicHoliday[]> {
-  const url = `https://date.nager.at/api/v3/PublicHolidays/${year}/${countryCode.toUpperCase()}`;
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 6000);
+export interface NagerResult {
+  data: PublicHoliday[];
+  success: boolean;
+  error?: string;
+}
+
+export async function fetchPublicHolidays(year: number, countryCode = 'US'): Promise<NagerResult> {
+  const normalizedCountry = countryCode.toUpperCase();
+  const cacheKey = `nager_holidays_${year}_${normalizedCountry}`;
+
+  const cached = memoryCache.get<PublicHoliday[]>(cacheKey);
+  if (cached) {
+    return { data: cached, success: true };
+  }
+
+  const url = `https://date.nager.at/api/v3/PublicHolidays/${year}/${normalizedCountry}`;
 
   try {
-    const res = await fetch(url, {
-      signal: controller.signal,
+    const res = await fetchWithRetry(url, {
+      timeoutMs: 7000,
+      retries: 2,
+      retryDelayMs: 400,
       headers: { Accept: 'application/json' },
-      next: { revalidate: 86400 }, // Cache 24 hours
     });
 
     if (!res.ok) {
-      throw new Error(`Nager.Date API HTTP ${res.status}`);
+      throw new Error(`Nager.Date API returned HTTP ${res.status}`);
     }
 
     const data = await res.json();
-    return Array.isArray(data) ? data : [];
-  } catch (err) {
-    console.error(`Error fetching public holidays for ${countryCode} in ${year}:`, err);
-    return [];
-  } finally {
-    clearTimeout(timeoutId);
+    if (!Array.isArray(data)) {
+      return { data: [], success: true };
+    }
+
+    memoryCache.set(cacheKey, data, 86400); // 24 hours
+    return { data, success: true };
+  } catch (err: unknown) {
+    const errorMsg = err instanceof Error ? err.message : 'Nager.Date service unavailable';
+    console.error(`[Nager.Date Error] ${countryCode} in ${year}:`, errorMsg);
+    // DO NOT fabricate fake holidays
+    return { data: [], success: false, error: errorMsg };
   }
 }
 
 export async function fetchAvailableCountries(): Promise<CountryOption[]> {
+  const cacheKey = 'nager_available_countries';
+  const cached = memoryCache.get<CountryOption[]>(cacheKey);
+  if (cached) return cached;
+
   const url = 'https://date.nager.at/api/v3/AvailableCountries';
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 6000);
 
   try {
-    const res = await fetch(url, {
-      signal: controller.signal,
+    const res = await fetchWithRetry(url, {
+      timeoutMs: 6000,
+      retries: 1,
+      retryDelayMs: 300,
       headers: { Accept: 'application/json' },
-      next: { revalidate: 86400 }, // Cache 24 hours
     });
 
-    if (!res.ok) {
-      return POPULAR_COUNTRIES;
-    }
+    if (!res.ok) return POPULAR_COUNTRIES;
 
     const data = await res.json();
     if (Array.isArray(data)) {
-      return data.map((c: { countryCode: string; name: string }) => ({
+      const formatted = data.map((c: { countryCode: string; name: string }) => ({
         countryCode: c.countryCode,
         name: c.name,
       }));
+      memoryCache.set(cacheKey, formatted, 86400 * 7); // 7 days
+      return formatted;
     }
     return POPULAR_COUNTRIES;
   } catch (err) {
-    console.error('Error fetching available countries:', err);
+    console.warn('[Nager.Date Warning] Could not fetch countries list, using defaults:', err);
     return POPULAR_COUNTRIES;
-  } finally {
-    clearTimeout(timeoutId);
   }
 }
 
@@ -84,7 +104,7 @@ export function analyzeFollowUpDate(
   holidays: PublicHoliday[]
 ): DateClashAnalysis {
   const date = new Date(dateString);
-  const dayOfWeek = date.getDay(); // 0 is Sunday, 6 is Saturday
+  const dayOfWeek = date.getDay(); // 0 = Sunday, 6 = Saturday
   const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
 
   const yyyyMmDd = dateString.split('T')[0];
@@ -93,11 +113,11 @@ export function analyzeFollowUpDate(
 
   let warningMessage: string | undefined;
   if (isHoliday && isWeekend) {
-    warningMessage = `This date is both a weekend and a public holiday (${matchingHoliday?.name}). Hiring managers will likely be out of office.`;
+    warningMessage = `This date is both a weekend and a public holiday (${matchingHoliday?.name}). Hiring teams will be out of office.`;
   } else if (isHoliday) {
-    warningMessage = `This date is a public holiday (${matchingHoliday?.name}). Avoid sending follow-ups on official holidays.`;
+    warningMessage = `This date is an official public holiday (${matchingHoliday?.name}). Recruiter responses will be delayed.`;
   } else if (isWeekend) {
-    warningMessage = 'This date falls on a weekend. Emails sent during weekends often get buried by Monday morning.';
+    warningMessage = 'This date falls on a weekend. Follow-up emails sent over weekends risk getting buried by Monday morning.';
   }
 
   // Calculate next safe business day

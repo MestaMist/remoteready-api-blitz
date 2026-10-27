@@ -1,4 +1,5 @@
 import { ExchangeRatesResponse } from '../types';
+import { fetchWithRetry, memoryCache } from './httpClient';
 
 export const POPULAR_CURRENCIES = [
   { code: 'USD', name: 'US Dollar', symbol: '$' },
@@ -15,60 +16,63 @@ export const POPULAR_CURRENCIES = [
   { code: 'MXN', name: 'Mexican Peso', symbol: 'Mex$' },
 ];
 
-export async function fetchExchangeRates(base = 'USD'): Promise<ExchangeRatesResponse> {
-  const primaryUrl = `https://api.frankfurter.dev/v1/latest?base=${encodeURIComponent(base)}`;
-  const fallbackUrl = `https://api.frankfurter.app/latest?base=${encodeURIComponent(base)}`;
+export interface FrankfurterResult {
+  data: ExchangeRatesResponse | null;
+  success: boolean;
+  error?: string;
+}
 
-  const fetchWithTimeout = async (url: string) => {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 6000);
-    try {
-      const res = await fetch(url, {
-        signal: controller.signal,
-        headers: { Accept: 'application/json' },
-        next: { revalidate: 3600 }, // Cache 1 hour
-      });
-      if (!res.ok) throw new Error(`Frankfurter HTTP ${res.status}`);
-      return await res.json();
-    } finally {
-      clearTimeout(timeoutId);
-    }
-  };
+export async function fetchExchangeRates(base = 'USD'): Promise<FrankfurterResult> {
+  const normalizedBase = base.toUpperCase();
+  const cacheKey = `frankfurter_rates_${normalizedBase}`;
+
+  // Check in-memory cache first (1 hour TTL)
+  const cached = memoryCache.get<ExchangeRatesResponse>(cacheKey);
+  if (cached) {
+    return { data: cached, success: true };
+  }
+
+  const primaryUrl = `https://api.frankfurter.dev/v1/latest?base=${encodeURIComponent(normalizedBase)}`;
+  const fallbackUrl = `https://api.frankfurter.app/latest?base=${encodeURIComponent(normalizedBase)}`;
 
   try {
-    const data = await fetchWithTimeout(primaryUrl);
-    // Ensure base currency has a rate of 1 in the rates mapping
-    if (data && data.rates) {
-      data.rates[base] = 1;
+    const res = await fetchWithRetry(primaryUrl, {
+      timeoutMs: 6000,
+      retries: 1,
+      retryDelayMs: 300,
+      headers: { Accept: 'application/json' },
+    });
+
+    if (!res.ok) throw new Error(`Frankfurter primary HTTP ${res.status}`);
+    const data: ExchangeRatesResponse = await res.json();
+    if (data?.rates) {
+      data.rates[normalizedBase] = 1;
+      memoryCache.set(cacheKey, data, 3600); // 1 hour
+      return { data, success: true };
     }
-    return data;
+    throw new Error('Invalid rates payload received');
   } catch (err1) {
-    console.warn('Frankfurter primary API failed, trying fallback...', err1);
+    console.warn('[Frankfurter Warning] Primary endpoint failed, attempting fallback URL...', err1);
     try {
-      const data = await fetchWithTimeout(fallbackUrl);
-      if (data && data.rates) {
-        data.rates[base] = 1;
+      const resFallback = await fetchWithRetry(fallbackUrl, {
+        timeoutMs: 6000,
+        retries: 1,
+        retryDelayMs: 300,
+        headers: { Accept: 'application/json' },
+      });
+      if (!resFallback.ok) throw new Error(`Frankfurter fallback HTTP ${resFallback.status}`);
+      const data: ExchangeRatesResponse = await resFallback.json();
+      if (data?.rates) {
+        data.rates[normalizedBase] = 1;
+        memoryCache.set(cacheKey, data, 3600); // 1 hour
+        return { data, success: true };
       }
-      return data;
-    } catch (err2) {
-      console.error('All Frankfurter endpoints failed:', err2);
-      // Sensible fallback rates if offline
-      return {
-        amount: 1,
-        base,
-        date: new Date().toISOString().split('T')[0],
-        rates: {
-          USD: 1,
-          EUR: 0.92,
-          GBP: 0.79,
-          INR: 86.5,
-          CAD: 1.38,
-          AUD: 1.54,
-          SGD: 1.35,
-          CHF: 0.89,
-          JPY: 152.0,
-        },
-      };
+      throw new Error('Invalid fallback rates payload');
+    } catch (err2: unknown) {
+      const errorMsg = err2 instanceof Error ? err2.message : 'Exchange rates unavailable';
+      console.error('[Frankfurter Error] All Frankfurter endpoints failed:', errorMsg);
+      // DO NOT fabricate fake exchange rates! Return explicit failure.
+      return { data: null, success: false, error: errorMsg };
     }
   }
 }
@@ -84,11 +88,6 @@ export function convertSalary(
     return { converted: amount, rateUsed: 1 };
   }
 
-  // Frankfurter rates are relative to baseCurrency:
-  // 1 Base = rates[X] X
-  // To convert from X to Y:
-  // Base = amount / rates[X]
-  // Y = Base * rates[Y] = amount * (rates[Y] / rates[X])
   const rateX = fromCurrency === baseCurrency ? 1 : rates[fromCurrency];
   const rateY = toCurrency === baseCurrency ? 1 : rates[toCurrency];
 

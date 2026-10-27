@@ -2,25 +2,36 @@ import { NextRequest, NextResponse } from 'next/server';
 import { fetchExchangeRates, POPULAR_CURRENCIES } from '@/lib/api/frankfurter';
 
 export const dynamic = 'force-dynamic';
-export const revalidate = 3600; // 1 hour cache
 
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const base = searchParams.get('base') || 'USD';
-    const rates = await fetchExchangeRates(base.toUpperCase());
+    const result = await fetchExchangeRates(base.toUpperCase());
+
+    if (!result.success || !result.data) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: result.error || 'Frankfurter exchange rates service is currently unavailable.',
+          popularCurrencies: POPULAR_CURRENCIES,
+        },
+        { status: 503 }
+      );
+    }
 
     return NextResponse.json({
       success: true,
-      data: rates,
+      data: result.data,
       popularCurrencies: POPULAR_CURRENCIES,
     });
-  } catch (error) {
-    console.error('Frankfurter route error:', error);
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Failed to retrieve exchange rates.';
+    console.error('Frankfurter route error:', message);
     return NextResponse.json(
       {
         success: false,
-        error: 'Failed to retrieve exchange rates.',
+        error: message,
       },
       { status: 500 }
     );

@@ -32,6 +32,8 @@ export default function OverviewPage() {
   const [holidays, setHolidays] = useState<PublicHoliday[]>([]);
   const [appCount, setAppCount] = useState<number>(0);
   const [loading, setLoading] = useState(true);
+  const [newsError, setNewsError] = useState<string | null>(null);
+  const [holidaysError, setHolidaysError] = useState<string | null>(null);
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
   const [savedJobIds, setSavedJobIds] = useState<Set<string>>(new Set());
 
@@ -51,6 +53,8 @@ export default function OverviewPage() {
 
         if (newsRes.status === 'fulfilled' && newsRes.value?.stories) {
           setNews(newsRes.value.stories.slice(0, 5));
+        } else {
+          setNewsError('Hacker News API temporarily unreachable');
         }
 
         if (holidaysRes.status === 'fulfilled' && holidaysRes.value?.holidays) {
@@ -60,6 +64,8 @@ export default function OverviewPage() {
             .filter((h: PublicHoliday) => h.date >= today)
             .slice(0, 3);
           setHolidays(upcoming);
+        } else {
+          setHolidaysError('Nager.Date public holidays service temporarily unreachable');
         }
 
         if (appsRes.status === 'fulfilled' && appsRes.value?.applications) {
@@ -247,7 +253,13 @@ export default function OverviewPage() {
 
             <div className="space-y-3">
               {news.length === 0 ? (
-                <p className="text-xs text-slate-500 py-3">Connecting to Hacker News API...</p>
+                <div className="text-xs text-slate-500 py-3">
+                  {newsError ? (
+                    <span className="text-amber-400/90 font-mono text-[11px]">{newsError}</span>
+                  ) : (
+                    'Connecting to Hacker News API...'
+                  )}
+                </div>
               ) : (
                 news.map((story) => (
                   <div key={story.id} className="group text-xs space-y-1">
@@ -288,7 +300,13 @@ export default function OverviewPage() {
             </p>
             <div className="space-y-2">
               {holidays.length === 0 ? (
-                <div className="text-xs text-slate-500">Checking Nager.Date API...</div>
+                <div className="text-xs text-slate-500">
+                  {holidaysError ? (
+                    <span className="text-amber-400/90 font-mono text-[11px]">{holidaysError}</span>
+                  ) : (
+                    'Checking Nager.Date API...'
+                  )}
+                </div>
               ) : (
                 holidays.map((h, i) => (
                   <div

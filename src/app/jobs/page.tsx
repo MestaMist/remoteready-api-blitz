@@ -17,6 +17,10 @@ export default function JobsPage() {
   const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [providerHealth, setProviderHealth] = useState<{
+    remotive?: { status: string; count: number; error?: string };
+    arbeitnow?: { status: string; count: number; error?: string };
+  }>({});
 
   // Filters state
   const [search, setSearch] = useState('');
@@ -47,6 +51,9 @@ export default function JobsPage() {
       }
 
       setJobs(data.jobs || []);
+      if (data.providers) {
+        setProviderHealth(data.providers);
+      }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Error fetching remote jobs';
       setError(msg);
@@ -197,17 +204,48 @@ export default function JobsPage() {
 
       {/* Filter Component */}
       {activeTab === 'all' && (
-        <JobFilters
-          search={search}
-          onSearchChange={setSearch}
-          source={source}
-          onSourceChange={setSource}
-          jobType={jobType}
-          onJobTypeChange={setJobType}
-          sort={sort}
-          onSortChange={setSort}
-          totalResults={jobs.length}
-        />
+        <>
+          <JobFilters
+            search={search}
+            onSearchChange={setSearch}
+            source={source}
+            onSourceChange={setSource}
+            jobType={jobType}
+            onJobTypeChange={setJobType}
+            sort={sort}
+            onSortChange={setSort}
+            totalResults={jobs.length}
+          />
+
+          {/* Provider Specific Health Notices */}
+          {providerHealth.remotive?.status === 'unavailable' && (
+            <div className="p-3 rounded-xl bg-amber-950/30 border border-amber-800/40 text-amber-200 text-xs flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
+                <span>
+                  <strong>Remotive API Notice:</strong> Remotive is currently unreachable ({providerHealth.remotive.error || 'timeout'}). Displaying verified listings from Arbeitnow.
+                </span>
+              </div>
+              <button onClick={() => fetchJobs()} className="underline text-amber-300 font-mono text-[11px] shrink-0">
+                Retry Remotive
+              </button>
+            </div>
+          )}
+
+          {providerHealth.arbeitnow?.status === 'unavailable' && (
+            <div className="p-3 rounded-xl bg-amber-950/30 border border-amber-800/40 text-amber-200 text-xs flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
+                <span>
+                  <strong>Arbeitnow API Notice:</strong> Arbeitnow is currently unreachable ({providerHealth.arbeitnow.error || 'timeout'}). Displaying verified listings from Remotive.
+                </span>
+              </div>
+              <button onClick={() => fetchJobs()} className="underline text-amber-300 font-mono text-[11px] shrink-0">
+                Retry Arbeitnow
+              </button>
+            </div>
+          )}
+        </>
       )}
 
       {/* Content Area */}

@@ -1,4 +1,5 @@
 import { Job } from '../types';
+import { fetchWithRetry, memoryCache } from './httpClient';
 
 interface ArbeitnowJobRaw {
   slug: string;
@@ -19,35 +20,48 @@ interface ArbeitnowApiResponse {
   meta?: Record<string, unknown>;
 }
 
+export interface ProviderResult<T> {
+  data: T;
+  success: boolean;
+  error?: string;
+}
+
 export async function fetchArbeitnowJobs(options: {
   page?: number;
-} = {}): Promise<Job[]> {
+} = {}): Promise<ProviderResult<Job[]>> {
   const { page = 1 } = options;
+  const cacheKey = `arbeitnow_normalized_page_${page}`;
+
+  // Check in-memory cache for normalized data first
+  const cached = memoryCache.get<Job[]>(cacheKey);
+  if (cached) {
+    return { data: cached, success: true };
+  }
+
   const url = `https://www.arbeitnow.com/api/job-board-api?page=${page}`;
 
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 8000);
-
   try {
-    const res = await fetch(url, {
-      signal: controller.signal,
+    const res = await fetchWithRetry(url, {
+      timeoutMs: 9000,
+      retries: 2,
+      retryDelayMs: 400,
       headers: {
-        'User-Agent': 'RemoteReady-Client/1.0',
+        'User-Agent': 'RemoteReady-JobEngine/1.0',
         Accept: 'application/json',
       },
-      next: { revalidate: 300 }, // Cache 5 mins
     });
 
     if (!res.ok) {
-      throw new Error(`Arbeitnow API responded with status ${res.status}`);
+      throw new Error(`Arbeitnow API returned HTTP ${res.status}`);
     }
 
-    const data: ArbeitnowApiResponse = await res.json();
-    if (!Array.isArray(data.data)) {
-      return [];
+    const json: ArbeitnowApiResponse = await res.json();
+    if (!Array.isArray(json.data)) {
+      return { data: [], success: true };
     }
 
-    return data.data.map((item): Job => {
+    // Normalize and retain ONLY required fields with bounded description size to save memory
+    const normalized: Job[] = json.data.slice(0, 100).map((item): Job => {
       let jobType = 'Full-Time';
       if (item.job_types && item.job_types.length > 0) {
         const typesCombined = item.job_types.join(' ').toLowerCase();
@@ -61,27 +75,37 @@ export async function fetchArbeitnowJobs(options: {
         ? (item.location ? `${item.location} (Remote)` : 'Remote')
         : (item.location || 'Hybrid / On-site');
 
+      // Bound description size (max 4,000 characters) to prevent multi-megabyte payloads in memory
+      let descriptionHtml = item.description || '';
+      if (descriptionHtml.length > 4000) {
+        descriptionHtml = descriptionHtml.slice(0, 4000) + '... <p><em>(Visit source link for full listing)</em></p>';
+      }
+
       return {
         id: `arbeitnow_${item.slug}`,
         source: 'arbeitnow',
         title: item.title,
         companyName: item.company_name,
         companyLogo: undefined,
-        category: item.tags?.[0] || 'Software Development',
-        tags: Array.isArray(item.tags) ? item.tags : [],
+        category: item.tags?.[0] || 'Engineering',
+        tags: Array.isArray(item.tags) ? item.tags.slice(0, 8) : [],
         jobType,
         location,
-        salary: undefined, // Arbeitnow rarely provides explicit salary numbers
+        salary: undefined,
         url: item.url,
         publishedAt: publishedIso,
-        descriptionHtml: item.description || '',
+        descriptionHtml,
         isRemote: Boolean(item.remote),
       };
     });
-  } catch (error) {
-    console.error('Error fetching Arbeitnow jobs:', error);
-    return [];
-  } finally {
-    clearTimeout(timeoutId);
+
+    // Cache the small normalized result (approx 80 KB vs 2.5 MB raw)
+    memoryCache.set(cacheKey, normalized, 300); // 5 mins
+
+    return { data: normalized, success: true };
+  } catch (error: unknown) {
+    const errorMsg = error instanceof Error ? error.message : 'Arbeitnow API connection timeout';
+    console.error('[Arbeitnow Provider Warning]:', errorMsg);
+    return { data: [], success: false, error: errorMsg };
   }
 }

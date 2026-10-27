@@ -1,10 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { fetchRemotiveJobs } from '@/lib/api/remotive';
-import { fetchArbeitnowJobs } from '@/lib/api/arbeitnow';
+import { fetchArbeitnowJobs, ProviderResult } from '@/lib/api/arbeitnow';
 import { Job } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
-export const revalidate = 300; // 5 minutes cache
 
 export async function GET(request: NextRequest) {
   try {
@@ -15,13 +14,17 @@ export async function GET(request: NextRequest) {
     const sort = searchParams.get('sort') || 'newest'; // 'newest' | 'company' | 'title'
 
     // Fetch from both sources in parallel with fault tolerance
-    const [remotiveSettled, arbeitnowSettled] = await Promise.allSettled([
-      sourceFilter === 'arbeitnow' ? Promise.resolve([]) : fetchRemotiveJobs({ search }),
-      sourceFilter === 'remotive' ? Promise.resolve([]) : fetchArbeitnowJobs(),
+    const [remotiveResult, arbeitnowResult] = await Promise.all([
+      sourceFilter === 'arbeitnow'
+        ? Promise.resolve<ProviderResult<Job[]>>({ data: [], success: true })
+        : fetchRemotiveJobs({ search }),
+      sourceFilter === 'remotive'
+        ? Promise.resolve<ProviderResult<Job[]>>({ data: [], success: true })
+        : fetchArbeitnowJobs(),
     ]);
 
-    const remotiveJobs = remotiveSettled.status === 'fulfilled' ? remotiveSettled.value : [];
-    const arbeitnowJobs = arbeitnowSettled.status === 'fulfilled' ? arbeitnowSettled.value : [];
+    const remotiveJobs = remotiveResult.data;
+    const arbeitnowJobs = arbeitnowResult.data;
 
     // Deduplication logic: map by simplified `company_name + title`
     const seenMap = new Map<string, Job>();
@@ -49,13 +52,13 @@ export async function GET(request: NextRequest) {
     // Apply text search across title, company, tags, location
     if (search) {
       combinedJobs = combinedJobs.filter((j) => {
-        const textMatch =
+        return (
           j.title.toLowerCase().includes(search) ||
           j.companyName.toLowerCase().includes(search) ||
           j.location.toLowerCase().includes(search) ||
           j.tags.some((tag) => tag.toLowerCase().includes(search)) ||
-          (j.category && j.category.toLowerCase().includes(search));
-        return textMatch;
+          (j.category && j.category.toLowerCase().includes(search))
+        );
       });
     }
 
@@ -72,29 +75,48 @@ export async function GET(request: NextRequest) {
       combinedJobs.sort((a, b) => a.title.localeCompare(b.title));
     } else {
       // Default newest first
-      combinedJobs.sort((a, b) => new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime());
+      combinedJobs.sort(
+        (a, b) => new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime()
+      );
     }
 
     return NextResponse.json({
       success: true,
       jobs: combinedJobs,
       total: combinedJobs.length,
+      providers: {
+        remotive: {
+          status: remotiveResult.success ? 'healthy' : 'unavailable',
+          count: remotiveJobs.length,
+          error: remotiveResult.error,
+        },
+        arbeitnow: {
+          status: arbeitnowResult.success ? 'healthy' : 'unavailable',
+          count: arbeitnowJobs.length,
+          error: arbeitnowResult.error,
+        },
+      },
       counts: {
         remotive: remotiveJobs.length,
         arbeitnow: arbeitnowJobs.length,
         combined: combinedJobs.length,
       },
     });
-  } catch (error) {
-    console.error('Unified jobs route error:', error);
+  } catch (error: unknown) {
+    const errorMsg = error instanceof Error ? error.message : 'Failed to retrieve remote jobs';
+    console.error('Unified jobs route error:', errorMsg);
     return NextResponse.json(
       {
         success: false,
-        error: 'Failed to retrieve remote jobs. Please check network connectivity.',
+        error: errorMsg,
         jobs: [],
         total: 0,
+        providers: {
+          remotive: { status: 'unavailable', count: 0, error: errorMsg },
+          arbeitnow: { status: 'unavailable', count: 0, error: errorMsg },
+        },
       },
-      { status: 500 }
+      { status: 200 } // Return 200 with clear error structure rather than breaking caller
     );
   }
 }

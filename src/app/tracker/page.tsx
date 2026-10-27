@@ -37,6 +37,7 @@ export default function TrackerPage() {
   const [viewMode, setViewMode] = useState<'kanban' | 'list'>('kanban');
   const [search, setSearch] = useState('');
   const [isDbConnected, setIsDbConnected] = useState(false);
+  const [showSetupHelp, setShowSetupHelp] = useState(false);
 
   // Modal State
   const [modalOpen, setModalOpen] = useState(false);
@@ -231,7 +232,7 @@ export default function TrackerPage() {
                   : 'bg-amber-950 text-amber-300 border-amber-800/40'
               }`}
             >
-              {isDbConnected ? 'Neon PostgreSQL Persisted' : 'Local Storage Fallback'}
+              {isDbConnected ? 'Neon PostgreSQL Persisted' : 'Neon DB Unconnected (Temporary Local Session)'}
             </span>
           </div>
           <p className="text-xs text-slate-400 mt-1">
@@ -240,6 +241,15 @@ export default function TrackerPage() {
         </div>
 
         <div className="flex items-center gap-2.5">
+          {!isDbConnected && (
+            <button
+              onClick={() => setShowSetupHelp(!showSetupHelp)}
+              className="px-2.5 py-1.5 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs font-medium"
+            >
+              {showSetupHelp ? 'Hide Neon Setup' : 'Connect Neon Database'}
+            </button>
+          )}
+
           {/* View Mode Toggle */}
           <div className="flex items-center p-1 bg-navy-900 border border-slate-800 rounded-lg">
             <button
@@ -278,6 +288,47 @@ export default function TrackerPage() {
           </button>
         </div>
       </div>
+
+      {/* Neon Database Missing Notice */}
+      {!isDbConnected && (
+        <div className="bg-amber-950/30 border border-amber-800/50 rounded-xl p-4 text-xs text-amber-200 space-y-2">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 font-semibold">
+              <Database className="w-4 h-4 text-amber-400 shrink-0" />
+              <span>Neon PostgreSQL DATABASE_URL is not configured</span>
+            </div>
+            <button
+              onClick={() => setShowSetupHelp(!showSetupHelp)}
+              className="text-amber-300 underline font-mono text-[11px]"
+            >
+              {showSetupHelp ? 'Hide Setup Steps' : 'View Setup Steps'}
+            </button>
+          </div>
+          <p className="text-slate-300 text-[11px] leading-relaxed">
+            Applications are temporarily held in local browser state and will not be preserved across different devices or incognito sessions. Real database persistence will activate automatically once your Neon PostgreSQL connection string is supplied.
+          </p>
+
+          {showSetupHelp && (
+            <div className="mt-3 p-3 bg-navy-950/90 rounded-lg border border-amber-900/40 space-y-2 text-slate-300">
+              <p className="font-semibold text-slate-200">Required Neon Setup Steps:</p>
+              <ol className="list-decimal list-inside space-y-1.5 text-[11px]">
+                <li>
+                  Create a serverless Postgres project at <a href="https://console.neon.tech" target="_blank" className="text-cyan-400 underline">console.neon.tech</a>.
+                </li>
+                <li>
+                  Copy your connection URI and set it in <code className="bg-slate-900 px-1.5 py-0.5 rounded text-amber-300">.env.local</code>:
+                  <pre className="mt-1 p-2 bg-slate-900 rounded font-mono text-[10px] text-cyan-300 overflow-x-auto">
+DATABASE_URL=&quot;postgresql://neondb_owner:YOUR_PASSWORD@ep-sample-123456.us-east-2.aws.neon.tech/neondb?sslmode=require&quot;
+                  </pre>
+                </li>
+                <li>
+                  Execute <code className="bg-slate-900 px-1 py-0.5 rounded text-cyan-400">database/schema.sql</code> in the Neon SQL Editor (or allow our auto-migrator to initialize tables on restart).
+                </li>
+              </ol>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Filter and Metrics Summary */}
       <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-navy-900/60 border border-slate-800/80 rounded-xl p-3.5">

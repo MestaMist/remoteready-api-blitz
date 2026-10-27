@@ -24,6 +24,7 @@ export default function PlannerPage() {
   const [holidays, setHolidays] = useState<PublicHoliday[]>([]);
   const [countries, setCountries] = useState<CountryOption[]>(POPULAR_COUNTRIES);
   const [loading, setLoading] = useState(true);
+  const [holidaysError, setHolidaysError] = useState<string | null>(null);
 
   // Clash Auditor state
   const [testDate, setTestDate] = useState(() => {
@@ -43,13 +44,21 @@ export default function PlannerPage() {
   useEffect(() => {
     async function loadHolidays() {
       setLoading(true);
+      setHolidaysError(null);
       try {
         const res = await fetch(`/api/holidays?country=${selectedCountry}&year=${selectedYear}`);
         const data = await res.json();
         if (data.success && Array.isArray(data.holidays)) {
           setHolidays(data.holidays);
+          setHolidaysError(null);
+        } else {
+          setHolidaysError(data.error || 'Nager.Date public holidays service is currently unavailable');
+          setHolidays([]);
         }
-      } catch (e) {
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : 'Network error loading public holidays';
+        setHolidaysError(msg);
+        setHolidays([]);
         console.error('Failed to load holidays:', e);
       } finally {
         setLoading(false);
@@ -221,8 +230,13 @@ export default function PlannerPage() {
         {loading ? (
           <LoadingSpinner label={`Fetching official holidays from Nager.Date API for ${selectedCountry}...`} />
         ) : holidays.length === 0 ? (
-          <div className="text-center py-10 bg-navy-900 border border-slate-800 rounded-xl text-slate-400 text-xs">
-            No public holidays reported for this region.
+          <div className="text-center py-10 bg-navy-900 border border-slate-800 rounded-xl text-slate-400 text-xs space-y-2">
+            <p>{holidaysError || 'No public holidays reported for this region.'}</p>
+            {holidaysError && (
+              <p className="text-[11px] text-slate-500">
+                Official holiday dates are never fabricated. Check your network connection or try switching countries.
+              </p>
+            )}
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">

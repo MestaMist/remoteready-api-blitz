@@ -7,7 +7,6 @@ import {
 } from '@/lib/api/nager';
 
 export const dynamic = 'force-dynamic';
-export const revalidate = 86400; // 24 hours
 
 export async function GET(request: NextRequest) {
   try {
@@ -25,7 +24,7 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    const holidays = await fetchPublicHolidays(year, country);
+    const result = await fetchPublicHolidays(year, country);
 
     if (action === 'check') {
       const date = searchParams.get('date');
@@ -35,28 +34,43 @@ export async function GET(request: NextRequest) {
           { status: 400 }
         );
       }
-      const analysis = analyzeFollowUpDate(date, holidays);
+      const analysis = analyzeFollowUpDate(date, result.data);
       return NextResponse.json({
         success: true,
         date,
         country,
         analysis,
+        serviceStatus: result.success ? 'healthy' : 'unavailable',
       });
+    }
+
+    if (!result.success) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: result.error || 'Nager.Date public holidays service is currently unavailable.',
+          country,
+          year,
+          holidays: [],
+        },
+        { status: 503 }
+      );
     }
 
     return NextResponse.json({
       success: true,
       country,
       year,
-      count: holidays.length,
-      holidays,
+      count: result.data.length,
+      holidays: result.data,
     });
-  } catch (error) {
-    console.error('Holidays route error:', error);
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Failed to retrieve public holidays.';
+    console.error('Holidays route error:', message);
     return NextResponse.json(
       {
         success: false,
-        error: 'Failed to retrieve public holidays.',
+        error: message,
         holidays: [],
       },
       { status: 500 }

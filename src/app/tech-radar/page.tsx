@@ -33,6 +33,7 @@ export default function TechRadarPage() {
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [hnError, setHnError] = useState<string | null>(null);
 
   const fetchNews = async (cat = 'all') => {
     try {
@@ -41,8 +42,13 @@ export default function TechRadarPage() {
       const data = await res.json();
       if (data.success && Array.isArray(data.stories)) {
         setStories(data.stories);
+        setHnError(null);
+      } else {
+        setHnError(data.error || 'Hacker News service is currently unreachable');
       }
-    } catch (e) {
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Network error loading Hacker News stories';
+      setHnError(msg);
       console.error('Failed to load Hacker News stories:', e);
     } finally {
       setLoading(false);
@@ -112,11 +118,15 @@ export default function TechRadarPage() {
         <LoadingSpinner label="Fetching live discussions from Hacker News Firebase API..." />
       ) : stories.length === 0 ? (
         <EmptyState
-          title="No Stories Found"
-          description="Could not find stories in this category right now. Try switching to 'All Stories'."
+          title={hnError ? 'Hacker News API Unavailable' : 'No Stories Found'}
+          description={
+            hnError
+              ? `${hnError}. Developer discussions and hiring threads are never fabricated. Please retry to connect.`
+              : "Could not find stories in this category right now. Try switching to 'All Stories'."
+          }
           icon={Radio}
-          actionLabel="View All Stories"
-          onAction={() => setSelectedCategory('all')}
+          actionLabel={hnError ? 'Retry Connection' : 'View All Stories'}
+          onAction={() => (hnError ? fetchNews(selectedCategory) : setSelectedCategory('all'))}
         />
       ) : (
         <div className="space-y-3">

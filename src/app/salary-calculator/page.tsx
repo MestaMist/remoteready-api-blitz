@@ -29,15 +29,21 @@ function SalaryCalculatorContent() {
   const [ratesData, setRatesData] = useState<ExchangeRatesResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [ratesError, setRatesError] = useState<string | null>(null);
 
   const fetchRates = async (base = 'USD') => {
+    setRatesError(null);
     try {
       const res = await fetch(`/api/rates?base=${base}`);
       const json = await res.json();
       if (json.success && json.data) {
         setRatesData(json.data);
+      } else {
+        setRatesError(json.error || 'Failed to fetch live exchange rates from Frankfurter');
       }
-    } catch (e) {
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Network error loading exchange rates';
+      setRatesError(msg);
       console.error('Failed to load rates:', e);
     } finally {
       setLoading(false);
@@ -99,6 +105,22 @@ function SalaryCalculatorContent() {
       <div className="bg-navy-900 border border-slate-800 rounded-2xl p-6 sm:p-8 shadow-lg">
         {loading ? (
           <LoadingSpinner label="Fetching live European Central Bank rates from Frankfurter..." />
+        ) : ratesError && !ratesData ? (
+          <div className="py-8 text-center space-y-3">
+            <div className="inline-flex p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400">
+              <Info className="w-6 h-6" />
+            </div>
+            <h3 className="text-sm font-semibold text-slate-200">Frankfurter Exchange Rates Unavailable</h3>
+            <p className="text-xs text-slate-400 max-w-md mx-auto">
+              {ratesError}. As per hackathon compensation accuracy guidelines, exchange rates are never fabricated. Please retry to connect to the live rate feed.
+            </p>
+            <button
+              onClick={() => fetchRates(fromCurrency)}
+              className="px-4 py-2 rounded-lg bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 text-xs font-semibold"
+            >
+              Retry Live Rate Feed
+            </button>
+          </div>
         ) : (
           <div className="space-y-6">
             {/* Input & Currencies Controls */}

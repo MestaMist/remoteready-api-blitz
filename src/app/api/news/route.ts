@@ -2,16 +2,28 @@ import { NextRequest, NextResponse } from 'next/server';
 import { fetchHackerNewsStories } from '@/lib/api/hackernews';
 
 export const dynamic = 'force-dynamic';
-export const revalidate = 600; // 10 minutes cache
 
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const category = searchParams.get('category'); // 'all' | 'hiring' | 'tech' | 'ai' | 'career'
-    const limit = parseInt(searchParams.get('limit') || '30', 10);
+    const limit = parseInt(searchParams.get('limit') || '25', 10);
 
-    let stories = await fetchHackerNewsStories(limit);
+    const result = await fetchHackerNewsStories(limit);
 
+    if (!result.success && result.stories.length === 0) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: result.error || 'Hacker News API is currently unreachable.',
+          stories: [],
+          count: 0,
+        },
+        { status: 503 }
+      );
+    }
+
+    let stories = result.stories;
     if (category && category !== 'all') {
       stories = stories.filter((s) => s.category === category);
     }
@@ -21,12 +33,13 @@ export async function GET(request: NextRequest) {
       count: stories.length,
       stories,
     });
-  } catch (error) {
-    console.error('Hacker News route error:', error);
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Failed to retrieve Hacker News stories.';
+    console.error('Hacker News route error:', message);
     return NextResponse.json(
       {
         success: false,
-        error: 'Failed to retrieve Hacker News stories.',
+        error: message,
         stories: [],
       },
       { status: 500 }
