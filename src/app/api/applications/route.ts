@@ -55,6 +55,7 @@ export async function POST(request: NextRequest) {
       application,
     });
   } catch (error: unknown) {
+    console.error('[API applications POST error]:', error);
     const message = error instanceof Error ? error.message : 'Failed to create application';
     return NextResponse.json(
       { success: false, error: message },

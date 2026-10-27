@@ -3,13 +3,20 @@ import { fetchHackerNewsStories } from '@/lib/api/hackernews';
 
 export const dynamic = 'force-dynamic';
 
+/** Hard cap: return after at most 10 seconds regardless of HN speed */
+const ROUTE_TIMEOUT_MS = 10_000;
+
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const category = searchParams.get('category'); // 'all' | 'hiring' | 'tech' | 'ai' | 'career'
-    const limit = parseInt(searchParams.get('limit') || '25', 10);
+    const limit = Math.min(parseInt(searchParams.get('limit') || '25', 10), 30); // cap at 30
 
-    const result = await fetchHackerNewsStories(limit);
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('Hacker News request timed out')), ROUTE_TIMEOUT_MS)
+    );
+
+    const result = await Promise.race([fetchHackerNewsStories(limit), timeoutPromise]);
 
     if (!result.success && result.stories.length === 0) {
       return NextResponse.json(

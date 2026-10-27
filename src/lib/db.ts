@@ -91,7 +91,10 @@ export async function getApplications(): Promise<Application[]> {
 
 export async function createApplication(app: Partial<Application>): Promise<Application> {
   const sql = getSql();
-  const id = app.id || `app_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+  const id = app.id && app.id.trim() !== '' ? app.id : `app_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+  const appDate = app.application_date || new Date().toISOString().split('T')[0];
+  const followUpDate = app.follow_up_date || null;
+
   const rows = await sql`
     INSERT INTO applications (
       id, job_id, company_name, role_title, status, application_date,
@@ -102,8 +105,8 @@ export async function createApplication(app: Partial<Application>): Promise<Appl
       ${app.company_name || 'Untitled Company'},
       ${app.role_title || 'Untitled Role'},
       ${app.status || 'Interested'},
-      ${app.application_date || new Date().toISOString().split('T')[0]},
-      ${app.follow_up_date || null},
+      ${appDate}::date,
+      ${followUpDate}::date,
       ${app.salary || null},
       ${app.currency || 'USD'},
       ${app.job_url || null},

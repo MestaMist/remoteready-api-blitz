@@ -30,9 +30,9 @@ export async function fetchHNItem(id: number): Promise<HNItemRaw | null> {
 
   try {
     const res = await fetchWithRetry(`https://hacker-news.firebaseio.com/v0/item/${id}.json`, {
-      timeoutMs: 4500,
-      retries: 1,
-      retryDelayMs: 250,
+      // Short per-item timeout: if HN is slow, skip the item rather than stalling the batch
+      timeoutMs: 2000,
+      retries: 0,
       headers: { Accept: 'application/json' },
     });
 
@@ -47,19 +47,21 @@ export async function fetchHNItem(id: number): Promise<HNItemRaw | null> {
   }
 }
 
-// Concurrency helper to avoid socket pool exhaustion
-async function pMap<T, R>(
-  items: T[],
-  mapper: (item: T) => Promise<R>,
-  concurrency = 5
-): Promise<R[]> {
-  const results: R[] = [];
-  for (let i = 0; i < items.length; i += concurrency) {
-    const chunk = items.slice(i, i + concurrency);
-    const chunkResults = await Promise.all(chunk.map(mapper));
-    results.push(...chunkResults);
-  }
-  return results;
+/**
+ * Fetch all items truly in parallel (no sequential batching).
+ * Each item has its own 2 s timeout and will return null on failure,
+ * so a slow HN server cannot block the whole feed.
+ */
+async function fetchAllInParallel(ids: number[]): Promise<(HNItemRaw | null)[]> {
+  return Promise.all(ids.map((id) => fetchHNItem(id)));
+}
+
+/** Absolute deadline wrapper: resolves with null after `ms` milliseconds */
+function withDeadline<T>(promise: Promise<T>, ms: number): Promise<T | null> {
+  return Promise.race([
+    promise,
+    new Promise<null>((resolve) => setTimeout(() => resolve(null), ms)),
+  ]);
 }
 
 export async function fetchHackerNewsStories(limit = 25): Promise<HNResult> {
@@ -92,13 +94,16 @@ export async function fetchHackerNewsStories(limit = 25): Promise<HNResult> {
       throw new Error('No stories returned from Hacker News endpoints');
     }
 
-    // Interleave job stories and top stories
-    const selectedJobIds = jobIds.slice(0, 6);
-    const selectedTopIds = topIds.slice(0, limit - selectedJobIds.length);
+    // Fetch only as many candidates as needed (limit + a small buffer for nulls/deleted items)
+    const candidateBuffer = Math.ceil(limit * 1.5);
+    const selectedJobIds = jobIds.slice(0, Math.min(6, Math.floor(candidateBuffer / 3)));
+    const selectedTopIds = topIds.slice(0, candidateBuffer - selectedJobIds.length);
     const combinedIds = Array.from(new Set([...selectedJobIds, ...selectedTopIds]));
 
-    // Fetch details in controlled concurrent batches of 5 to avoid socket timeout / UND_ERR_CONNECT_TIMEOUT
-    const items = await pMap(combinedIds, (id) => fetchHNItem(id), 5);
+    // Fetch all items truly in parallel; apply an absolute 7-second deadline so the
+    // route always responds in time even if HN item endpoints are individually slow.
+    const rawItems = await withDeadline(fetchAllInParallel(combinedIds), 7000);
+    const items = rawItems ?? [];
 
     const stories: HackerNewsStory[] = [];
 
