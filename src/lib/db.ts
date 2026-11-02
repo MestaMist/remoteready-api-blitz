@@ -21,7 +21,7 @@ export function getSql() {
   return neon(url);
 }
 
-// Automatically create tables if not present
+// Automatically create tables if not present (idempotent)
 export async function initDb() {
   const sql = getSql();
 
@@ -74,8 +74,36 @@ export async function initDb() {
   `;
 }
 
+let initPromise: Promise<void> | null = null;
+
+export async function ensureTablesExist(): Promise<void> {
+  if (!isDbConfigured()) return;
+  if (!initPromise) {
+    initPromise = initDb().catch((err) => {
+      initPromise = null;
+      throw err;
+    });
+  }
+  return initPromise;
+}
+
+export async function checkDbConnection(): Promise<{ connected: boolean; error?: string }> {
+  if (!isDbConfigured()) {
+    return { connected: false, error: 'DATABASE_URL is not configured' };
+  }
+  try {
+    const sql = getSql();
+    await sql`SELECT 1;`;
+    return { connected: true };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { connected: false, error: msg };
+  }
+}
+
 // Applications CRUD
 export async function getApplications(): Promise<Application[]> {
+  await ensureTablesExist();
   const sql = getSql();
   const rows = await sql`
     SELECT id, job_id, company_name, role_title, status, 
@@ -90,6 +118,7 @@ export async function getApplications(): Promise<Application[]> {
 }
 
 export async function createApplication(app: Partial<Application>): Promise<Application> {
+  await ensureTablesExist();
   const sql = getSql();
   const id = app.id && app.id.trim() !== '' ? app.id : `app_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
   const appDate = app.application_date || new Date().toISOString().split('T')[0];
@@ -124,6 +153,7 @@ export async function createApplication(app: Partial<Application>): Promise<Appl
 }
 
 export async function updateApplication(id: string, updates: Partial<Application>): Promise<Application | null> {
+  await ensureTablesExist();
   const sql = getSql();
   const rows = await sql`
     UPDATE applications
@@ -131,7 +161,7 @@ export async function updateApplication(id: string, updates: Partial<Application
       company_name = COALESCE(${updates.company_name ?? null}, company_name),
       role_title = COALESCE(${updates.role_title ?? null}, role_title),
       status = COALESCE(${updates.status ?? null}, status),
-      application_date = COALESCE(${updates.application_date ?? null}::date, application_date),
+      application_date = COALESCE(${updates.application_date ? updates.application_date : null}::date, application_date),
       follow_up_date = ${updates.follow_up_date ? updates.follow_up_date : null}::date,
       salary = COALESCE(${updates.salary ?? null}, salary),
       currency = COALESCE(${updates.currency ?? null}, currency),
@@ -150,6 +180,7 @@ export async function updateApplication(id: string, updates: Partial<Application
 }
 
 export async function deleteApplication(id: string): Promise<boolean> {
+  await ensureTablesExist();
   const sql = getSql();
   const rows = await sql`
     DELETE FROM applications WHERE id = ${id} RETURNING id;
@@ -159,6 +190,7 @@ export async function deleteApplication(id: string): Promise<boolean> {
 
 // Saved Jobs CRUD
 export async function getSavedJobs(): Promise<SavedJob[]> {
+  await ensureTablesExist();
   const sql = getSql();
   const rows = await sql`
     SELECT id, job_id, title, company_name, source, job_url, location, salary, category, tags, published_at, created_at
@@ -169,6 +201,7 @@ export async function getSavedJobs(): Promise<SavedJob[]> {
 }
 
 export async function saveJob(job: Partial<SavedJob>): Promise<SavedJob> {
+  await ensureTablesExist();
   const sql = getSql();
   const id = job.id || `save_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
   const tagsJson = JSON.stringify(job.tags || []);
@@ -202,6 +235,7 @@ export async function saveJob(job: Partial<SavedJob>): Promise<SavedJob> {
 }
 
 export async function removeSavedJob(jobId: string): Promise<boolean> {
+  await ensureTablesExist();
   const sql = getSql();
   const rows = await sql`
     DELETE FROM saved_jobs WHERE job_id = ${jobId} OR id = ${jobId} RETURNING id;

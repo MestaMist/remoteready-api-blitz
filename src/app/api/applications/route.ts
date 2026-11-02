@@ -8,6 +8,7 @@ export async function GET() {
     return NextResponse.json({
       success: false,
       isDbConfigured: false,
+      connected: false,
       message: 'DATABASE_URL is not set. Data is running in local offline mode.',
       applications: [],
     });
@@ -18,12 +19,19 @@ export async function GET() {
     return NextResponse.json({
       success: true,
       isDbConfigured: true,
+      connected: true,
       applications,
     });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Database query failed';
     return NextResponse.json(
-      { success: false, error: message, applications: [] },
+      {
+        success: false,
+        isDbConfigured: true,
+        connected: false,
+        error: message,
+        applications: [],
+      },
       { status: 500 }
     );
   }
@@ -41,24 +49,29 @@ export async function POST(request: NextRequest) {
     }
 
     if (!isDbConfigured()) {
-      return NextResponse.json({
-        success: false,
-        isDbConfigured: false,
-        message: 'Neon database is not configured yet. Application cannot be persisted to server database.',
-      }, { status: 503 });
+      return NextResponse.json(
+        {
+          success: false,
+          isDbConfigured: false,
+          connected: false,
+          message: 'Neon database is not configured yet. Application cannot be persisted to server database.',
+        },
+        { status: 503 }
+      );
     }
 
     const application = await createApplication(body);
     return NextResponse.json({
       success: true,
       isDbConfigured: true,
+      connected: true,
       application,
     });
   } catch (error: unknown) {
     console.error('[API applications POST error]:', error);
     const message = error instanceof Error ? error.message : 'Failed to create application';
     return NextResponse.json(
-      { success: false, error: message },
+      { success: false, isDbConfigured: true, connected: false, error: message },
       { status: 500 }
     );
   }

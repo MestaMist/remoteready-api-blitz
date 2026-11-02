@@ -276,7 +276,7 @@ export default function PlannerPage() {
         </div>
         <ul className="list-disc list-inside space-y-1 text-[11px] leading-relaxed text-slate-400">
           <li>
-            <strong>Tuesday to Thursday:</strong> Statistically yield 40% higher open and response rates from hiring managers than Friday afternoons or Mondays.
+            <strong>Tuesday to Thursday:</strong> Weekday follow-ups can help keep your application organized.
           </li>
           <li>
             <strong>Bank Holiday Spillover:</strong> If Monday is a holiday, treat Tuesday like a catch-up day for recruiters and follow up on Wednesday morning.

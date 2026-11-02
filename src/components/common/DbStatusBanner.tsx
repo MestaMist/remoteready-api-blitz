@@ -53,7 +53,7 @@ export function DbStatusBanner({ onStatusChange }: DbStatusBannerProps) {
           <span className="font-medium">
             {connected
               ? 'Neon PostgreSQL Active: Data is persisting directly to your server database.'
-              : 'Neon DB Not Configured: DATABASE_URL is missing in .env.local. Server database persistence is inactive.'}
+              : message || 'Neon DB Not Connected: Server database persistence is inactive.'}
           </span>
           <button
             onClick={() => setShowDetails(!showDetails)}

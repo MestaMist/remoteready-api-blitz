@@ -3,8 +3,9 @@ Link : https://remoteready-api-blitz.vercel.app
 # RemoteReady — Career Platform for Global Developers
 
 > **API Blitz 2026 Hackathon Submission**  
-> Target Repository: `remoteready-api-blitz`  
-> Live Stack: Next.js 15 (App Router), TypeScript, Tailwind CSS, Lucide Icons, Neon PostgreSQL (`@neondatabase/serverless`), Vercel-Ready.
+> GitHub Repository: [https://github.com/MestaMist/remoteready-api-blitz](https://github.com/MestaMist/remoteready-api-blitz)  
+> Live Production: [https://remoteready-api-blitz.vercel.app](https://remoteready-api-blitz.vercel.app)  
+> Live Stack: Next.js 15 (App Router), TypeScript, Tailwind CSS, Lucide Icons, Neon PostgreSQL (`@neondatabase/serverless`), Vercel Deployment.
 
 ---
 
@@ -114,7 +115,7 @@ RemoteReady integrates all five APIs displayed in the API Blitz 2026 challenge:
 
 ```bash
 # Clone the repository
-git clone https://github.com/your-username/remoteready-api-blitz.git
+git clone https://github.com/MestaMist/remoteready-api-blitz.git
 cd remoteready-api-blitz
 
 # Install dependencies
@@ -251,9 +252,14 @@ test();
 
 ## 8. Deployment to Vercel
 
-RemoteReady is built natively for Vercel deployment:
-1. Push the code to GitHub: `remoteready-api-blitz`.
+RemoteReady is deployed on Vercel:
+- **Live Production URL:** [https://remoteready-api-blitz.vercel.app](https://remoteready-api-blitz.vercel.app)
+- **Deployment Platform:** Vercel (Edge & Node.js Serverless runtime)
+- **Database:** Neon Serverless PostgreSQL
+
+To deploy your own instance:
+1. Push the code to GitHub: `https://github.com/MestaMist/remoteready-api-blitz`.
 2. Import the project into the [Vercel Dashboard](https://vercel.com/new).
-3. Set the Environment Variable:
-   - `DATABASE_URL`: Your Neon PostgreSQL connection string.
-4. Deploy! Next.js App Router edge and serverless functions will automatically handle routing and server-side queries.
+3. Set the Environment Variable in Vercel:
+   - `DATABASE_URL`: Your Neon PostgreSQL connection string (`postgresql://...sslmode=require`).
+4. Deploy! Next.js App Router edge and serverless functions will automatically handle routing and server-side database persistence.

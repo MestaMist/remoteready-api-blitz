@@ -37,14 +37,24 @@ export default function OverviewPage() {
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
   const [savedJobIds, setSavedJobIds] = useState<Set<string>>(new Set());
 
+  // Frankfurter Live Rates state
+  const [ratesData, setRatesData] = useState<{
+    inr?: string;
+    eur?: string;
+    gbp?: string;
+  } | null>(null);
+  const [ratesLoading, setRatesLoading] = useState(true);
+  const [ratesError, setRatesError] = useState<string | null>(null);
+
   useEffect(() => {
     async function loadDashboardData() {
       try {
-        const [jobsRes, newsRes, holidaysRes, appsRes] = await Promise.allSettled([
+        const [jobsRes, newsRes, holidaysRes, appsRes, ratesRes] = await Promise.allSettled([
           fetch('/api/jobs?sort=newest').then((r) => r.json()),
           fetch('/api/news?limit=5').then((r) => r.json()),
           fetch('/api/holidays?country=US&year=2026').then((r) => r.json()),
           fetch('/api/applications').then((r) => r.json()),
+          fetch('/api/rates?base=USD').then((r) => r.json()),
         ]);
 
         if (jobsRes.status === 'fulfilled' && jobsRes.value?.jobs) {
@@ -71,8 +81,27 @@ export default function OverviewPage() {
         if (appsRes.status === 'fulfilled' && appsRes.value?.applications) {
           setAppCount(appsRes.value.applications.length);
         }
+
+        if (
+          ratesRes.status === 'fulfilled' &&
+          ratesRes.value?.success &&
+          ratesRes.value?.data?.rates
+        ) {
+          const rates = ratesRes.value.data.rates;
+          setRatesData({
+            inr: rates['INR'] ? rates['INR'].toFixed(2) : undefined,
+            eur: rates['EUR'] ? rates['EUR'].toFixed(2) : undefined,
+            gbp: rates['GBP'] ? rates['GBP'].toFixed(2) : undefined,
+          });
+          setRatesError(null);
+        } else {
+          setRatesError('Frankfurter rates temporarily offline');
+        }
+        setRatesLoading(false);
       } catch (err) {
         console.error('Failed to load dashboard data:', err);
+        setRatesError('Failed to fetch exchange rates');
+        setRatesLoading(false);
       } finally {
         setLoading(false);
       }
@@ -186,8 +215,20 @@ export default function OverviewPage() {
         />
         <StatCard
           title="Live FX Benchmarks"
-          value="1.00 USD"
-          subtitle="~86.50 INR • 0.92 EUR • 0.79 GBP"
+          value={
+            ratesLoading
+              ? 'Loading...'
+              : ratesError
+              ? 'Unavailable'
+              : '1.00 USD'
+          }
+          subtitle={
+            ratesLoading
+              ? 'Connecting to Frankfurter ECB rates...'
+              : ratesError
+              ? 'Frankfurter exchange rates offline'
+              : `${ratesData?.inr ? `~${ratesData.inr} INR` : ''} • ${ratesData?.eur ? `${ratesData.eur} EUR` : ''} • ${ratesData?.gbp ? `${ratesData.gbp} GBP` : ''}`
+          }
           badge="Frankfurter API"
           icon={TrendingUp}
           colorScheme="emerald"

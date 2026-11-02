@@ -37,6 +37,7 @@ export default function TrackerPage() {
   const [viewMode, setViewMode] = useState<'kanban' | 'list'>('kanban');
   const [search, setSearch] = useState('');
   const [isDbConnected, setIsDbConnected] = useState(false);
+  const [dbError, setDbError] = useState<string | null>(null);
   const [showSetupHelp, setShowSetupHelp] = useState(false);
 
   // Modal State
@@ -46,66 +47,35 @@ export default function TrackerPage() {
   // Load applications from API (Neon PostgreSQL) with fallback to localStorage
   const loadApplications = async () => {
     setLoading(true);
+    setDbError(null);
     try {
       const res = await fetch('/api/applications');
       const data = await res.json();
 
-      setIsDbConnected(Boolean(data.isDbConfigured));
-
-      if (data.isDbConfigured && Array.isArray(data.applications)) {
-        setApplications(data.applications);
-      } else {
-        // Fallback to localStorage if Neon DB not configured yet
+      if (res.ok && data.success && data.isDbConfigured) {
+        setIsDbConnected(true);
+        setApplications(Array.isArray(data.applications) ? data.applications : []);
+      } else if (!data.isDbConfigured) {
+        setIsDbConnected(false);
+        setDbError('DATABASE_URL is not configured.');
         const local = localStorage.getItem(LOCAL_STORAGE_KEY);
         if (local) {
-          setApplications(JSON.parse(local));
+          try {
+            setApplications(JSON.parse(local));
+          } catch {
+            setApplications([]);
+          }
         } else {
-          // Starter template applications for demo
-          const sampleApps: Application[] = [
-            {
-              id: 'app_sample_1',
-              company_name: 'Vercel',
-              role_title: 'Full-Stack Developer (Next.js)',
-              status: 'Interview',
-              application_date: '2026-10-18',
-              follow_up_date: '2026-10-30',
-              salary: '110,000',
-              currency: 'USD',
-              location: 'Remote (Worldwide)',
-              job_url: 'https://vercel.com/careers',
-              notes: 'Technical screen passed with Engineering Manager.',
-            },
-            {
-              id: 'app_sample_2',
-              company_name: 'Automattic',
-              role_title: 'Backend Systems Engineer',
-              status: 'Applied',
-              application_date: '2026-10-22',
-              follow_up_date: '2026-11-04',
-              salary: '95,000',
-              currency: 'EUR',
-              location: 'Remote',
-              job_url: 'https://automattic.com/work-with-us',
-              notes: 'Application submitted via Arbeitnow listing.',
-            },
-            {
-              id: 'app_sample_3',
-              company_name: 'Supabase',
-              role_title: 'TypeScript SDK Developer',
-              status: 'Interested',
-              application_date: '2026-10-25',
-              salary: '120,000',
-              currency: 'USD',
-              location: 'Remote',
-              notes: 'Tailoring portfolio with PostgreSQL projects before applying.',
-            },
-          ];
-          setApplications(sampleApps);
-          localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(sampleApps));
+          setApplications([]);
         }
+      } else {
+        setIsDbConnected(false);
+        setDbError(data.error || 'Failed to connect to Neon PostgreSQL.');
       }
-    } catch (e) {
+    } catch (e: unknown) {
       console.warn('Tracker fetch error:', e);
+      setIsDbConnected(false);
+      setDbError(e instanceof Error ? e.message : 'Network error loading applications.');
     } finally {
       setLoading(false);
     }
@@ -123,89 +93,121 @@ export default function TrackerPage() {
   };
 
   const handleCreateOrUpdate = async (appData: Partial<Application>) => {
-    if (editingApp) {
+    if (editingApp && editingApp.id) {
       // Update existing
-      const updatedList = applications.map((a) =>
-        a.id === editingApp.id ? ({ ...a, ...appData, updated_at: new Date().toISOString() } as Application) : a
-      );
-      setApplications(updatedList);
-      syncLocalStorage(updatedList);
-
       if (isDbConnected) {
         try {
-          await fetch(`/api/applications/${editingApp.id}`, {
+          const res = await fetch(`/api/applications/${editingApp.id}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(appData),
           });
+          const result = await res.json();
+          if (res.ok && result.success && result.application) {
+            setApplications((prev) =>
+              prev.map((a) => (a.id === editingApp.id ? result.application : a))
+            );
+          } else {
+            alert(`Database update failed: ${result.error || 'Unknown error'}`);
+          }
         } catch (e) {
           console.error('Failed to update application in DB:', e);
+          alert('Network error updating application in database.');
         }
+      } else {
+        const updatedList = applications.map((a) =>
+          a.id === editingApp.id ? ({ ...a, ...appData, updated_at: new Date().toISOString() } as Application) : a
+        );
+        setApplications(updatedList);
+        syncLocalStorage(updatedList);
       }
     } else {
       // Create new
-      const newApp: Application = {
-        id: `app_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-        company_name: appData.company_name || 'New Company',
-        role_title: appData.role_title || 'Role',
-        status: appData.status || 'Applied',
-        application_date: appData.application_date || new Date().toISOString().split('T')[0],
-        follow_up_date: appData.follow_up_date || null,
-        salary: appData.salary || null,
-        currency: appData.currency || 'USD',
-        job_url: appData.job_url || null,
-        location: appData.location || 'Remote',
-        notes: appData.notes || null,
-        created_at: new Date().toISOString(),
-      };
-
-      const updatedList = [newApp, ...applications];
-      setApplications(updatedList);
-      syncLocalStorage(updatedList);
-
       if (isDbConnected) {
         try {
-          await fetch('/api/applications', {
+          const res = await fetch('/api/applications', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(newApp),
+            body: JSON.stringify(appData),
           });
+          const result = await res.json();
+          if (res.ok && result.success && result.application) {
+            setApplications((prev) => [result.application, ...prev]);
+          } else {
+            alert(`Database insert failed: ${result.error || 'Unknown error'}`);
+          }
         } catch (e) {
           console.error('Failed to persist new application in DB:', e);
+          alert('Network error persisting application in database.');
         }
+      } else {
+        const newApp: Application = {
+          id: `app_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+          company_name: appData.company_name || 'New Company',
+          role_title: appData.role_title || 'Role',
+          status: appData.status || 'Applied',
+          application_date: appData.application_date || new Date().toISOString().split('T')[0],
+          follow_up_date: appData.follow_up_date || null,
+          salary: appData.salary || null,
+          currency: appData.currency || 'USD',
+          job_url: appData.job_url || null,
+          location: appData.location || 'Remote',
+          notes: appData.notes || null,
+          created_at: new Date().toISOString(),
+        };
+
+        const updatedList = [newApp, ...applications];
+        setApplications(updatedList);
+        syncLocalStorage(updatedList);
       }
     }
   };
 
   const handleDelete = async (id: string) => {
-    const updatedList = applications.filter((a) => a.id !== id);
-    setApplications(updatedList);
-    syncLocalStorage(updatedList);
-
     if (isDbConnected) {
       try {
-        await fetch(`/api/applications/${id}`, { method: 'DELETE' });
+        const res = await fetch(`/api/applications/${id}`, { method: 'DELETE' });
+        const result = await res.json();
+        if (res.ok && result.success) {
+          setApplications((prev) => prev.filter((a) => a.id !== id));
+        } else {
+          alert(`Failed to delete application from database: ${result.error || 'Unknown error'}`);
+        }
       } catch (e) {
         console.error('Failed to delete application in DB:', e);
+        alert('Network error deleting application from database.');
       }
+    } else {
+      const updatedList = applications.filter((a) => a.id !== id);
+      setApplications(updatedList);
+      syncLocalStorage(updatedList);
     }
   };
 
   const handleStatusChange = async (id: string, newStatus: ApplicationStatus) => {
-    const updatedList = applications.map((a) => (a.id === id ? { ...a, status: newStatus } : a));
-    setApplications(updatedList);
-    syncLocalStorage(updatedList);
+    // Optimistic UI update
+    setApplications((prev) =>
+      prev.map((a) => (a.id === id ? { ...a, status: newStatus } : a))
+    );
 
     if (isDbConnected) {
       try {
-        await fetch(`/api/applications/${id}`, {
+        const res = await fetch(`/api/applications/${id}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ status: newStatus }),
         });
+        if (!res.ok) {
+          console.error('Failed to update status in DB');
+          loadApplications();
+        }
       } catch (e) {
         console.error('Failed to update status in DB:', e);
+        loadApplications();
       }
+    } else {
+      const updatedList = applications.map((a) => (a.id === id ? { ...a, status: newStatus } : a));
+      syncLocalStorage(updatedList);
     }
   };
 
@@ -229,10 +231,16 @@ export default function TrackerPage() {
               className={`text-[11px] font-mono px-2 py-0.5 rounded-full border ${
                 isDbConnected
                   ? 'bg-emerald-950 text-emerald-400 border-emerald-800/40'
-                  : 'bg-amber-950 text-amber-300 border-amber-800/40'
+                  : dbError?.includes('DATABASE_URL')
+                  ? 'bg-amber-950 text-amber-300 border-amber-800/40'
+                  : 'bg-rose-950 text-rose-300 border-rose-800/40'
               }`}
             >
-              {isDbConnected ? 'Neon PostgreSQL Persisted' : 'Neon DB Unconnected (Temporary Local Session)'}
+              {isDbConnected
+                ? 'Neon PostgreSQL Active (Persisted)'
+                : dbError?.includes('DATABASE_URL')
+                ? 'Neon DB Unconnected (Temporary Local Session)'
+                : 'Neon Connection Error (Temporary Local Session)'}
             </span>
           </div>
           <p className="text-xs text-slate-400 mt-1">
@@ -241,12 +249,21 @@ export default function TrackerPage() {
         </div>
 
         <div className="flex items-center gap-2.5">
-          {!isDbConnected && (
+          {!isDbConnected && dbError?.includes('DATABASE_URL') && (
             <button
               onClick={() => setShowSetupHelp(!showSetupHelp)}
               className="px-2.5 py-1.5 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs font-medium"
             >
               {showSetupHelp ? 'Hide Neon Setup' : 'Connect Neon Database'}
+            </button>
+          )}
+
+          {!isDbConnected && !dbError?.includes('DATABASE_URL') && (
+            <button
+              onClick={() => loadApplications()}
+              className="px-2.5 py-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/30 text-xs font-medium"
+            >
+              Retry Database Connection
             </button>
           )}
 
@@ -289,40 +306,65 @@ export default function TrackerPage() {
         </div>
       </div>
 
-      {/* Neon Database Missing Notice */}
+      {/* Neon Database Notice (shown only when DB is not connected) */}
       {!isDbConnected && (
-        <div className="bg-amber-950/30 border border-amber-800/50 rounded-xl p-4 text-xs text-amber-200 space-y-2">
+        <div
+          className={`border rounded-xl p-4 text-xs space-y-2 ${
+            dbError?.includes('DATABASE_URL')
+              ? 'bg-amber-950/30 border-amber-800/50 text-amber-200'
+              : 'bg-rose-950/30 border-rose-800/50 text-rose-200'
+          }`}
+        >
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2 font-semibold">
-              <Database className="w-4 h-4 text-amber-400 shrink-0" />
-              <span>Neon PostgreSQL DATABASE_URL is not configured</span>
+              <Database
+                className={`w-4 h-4 shrink-0 ${
+                  dbError?.includes('DATABASE_URL') ? 'text-amber-400' : 'text-rose-400'
+                }`}
+              />
+              <span>
+                {dbError?.includes('DATABASE_URL')
+                  ? 'Neon PostgreSQL DATABASE_URL is not configured'
+                  : `Neon Connection Error: ${dbError || 'Unable to reach database'}`}
+              </span>
             </div>
-            <button
-              onClick={() => setShowSetupHelp(!showSetupHelp)}
-              className="text-amber-300 underline font-mono text-[11px]"
-            >
-              {showSetupHelp ? 'Hide Setup Steps' : 'View Setup Steps'}
-            </button>
+            {dbError?.includes('DATABASE_URL') && (
+              <button
+                onClick={() => setShowSetupHelp(!showSetupHelp)}
+                className="text-amber-300 underline font-mono text-[11px]"
+              >
+                {showSetupHelp ? 'Hide Setup Steps' : 'View Setup Steps'}
+              </button>
+            )}
           </div>
           <p className="text-slate-300 text-[11px] leading-relaxed">
-            Applications are temporarily held in local browser state and will not be preserved across different devices or incognito sessions. Real database persistence will activate automatically once your Neon PostgreSQL connection string is supplied.
+            {dbError?.includes('DATABASE_URL')
+              ? 'Applications are temporarily held in local browser state and will not be preserved across different devices or incognito sessions. Real database persistence will activate automatically once your Neon PostgreSQL connection string is supplied.'
+              : 'The application could not establish a connection to Neon PostgreSQL. Temporary local session is active to prevent data loss. Check your network connection or verify DATABASE_URL.'}
           </p>
 
-          {showSetupHelp && (
+          {showSetupHelp && dbError?.includes('DATABASE_URL') && (
             <div className="mt-3 p-3 bg-navy-950/90 rounded-lg border border-amber-900/40 space-y-2 text-slate-300">
               <p className="font-semibold text-slate-200">Required Neon Setup Steps:</p>
               <ol className="list-decimal list-inside space-y-1.5 text-[11px]">
                 <li>
-                  Create a serverless Postgres project at <a href="https://console.neon.tech" target="_blank" className="text-cyan-400 underline">console.neon.tech</a>.
+                  Create a serverless Postgres project at{' '}
+                  <a href="https://console.neon.tech" target="_blank" className="text-cyan-400 underline">
+                    console.neon.tech
+                  </a>
+                  .
                 </li>
                 <li>
-                  Copy your connection URI and set it in <code className="bg-slate-900 px-1.5 py-0.5 rounded text-amber-300">.env.local</code>:
+                  Copy your connection URI and set it in{' '}
+                  <code className="bg-slate-900 px-1.5 py-0.5 rounded text-amber-300">.env.local</code>:
                   <pre className="mt-1 p-2 bg-slate-900 rounded font-mono text-[10px] text-cyan-300 overflow-x-auto">
 DATABASE_URL=&quot;postgresql://neondb_owner:YOUR_PASSWORD@ep-sample-123456.us-east-2.aws.neon.tech/neondb?sslmode=require&quot;
                   </pre>
                 </li>
                 <li>
-                  Execute <code className="bg-slate-900 px-1 py-0.5 rounded text-cyan-400">database/schema.sql</code> in the Neon SQL Editor (or allow our auto-migrator to initialize tables on restart).
+                  Execute{' '}
+                  <code className="bg-slate-900 px-1 py-0.5 rounded text-cyan-400">database/schema.sql</code> in the
+                  Neon SQL Editor (or allow our auto-migrator to initialize tables on restart).
                 </li>
               </ol>
             </div>
